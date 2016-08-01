@@ -7,6 +7,7 @@ import (
 	"log"
 	s "strings"
 	"time"
+	"sync"
 )
 
 const (
@@ -38,6 +39,7 @@ type Client struct {
 	Channels     []*Channel
 	UserData     Member
 	Debug        bool
+	mutex        *sync.Mutex
 }
 
 type ClientConfig struct {
@@ -89,7 +91,7 @@ func (self *Client) Disconnect() {
 
 // Subscribe subscribes the client to the channel
 func (self *Client) Subscribe(channel string) (ch *Channel) {
-	for _, ch := range self.Channels {
+	for _, ch := range self.channels() {
 		if ch.Name == channel {
 			self._subscribe <- ch
 			return ch
@@ -141,10 +143,10 @@ func (self *Client) runLoop() {
 				self.subscribe(c)
 			}
 
-			self.Channels = append(self.Channels, c)
+			self.addChannel(c)
 
 		case c := <-self._unsubscribe:
-			for _, ch := range self.Channels {
+			for _, ch := range self.channels() {
 				if ch.Name == c {
 					if self.connection != nil {
 						self.unsubscribe(ch)
@@ -167,14 +169,14 @@ func (self *Client) runLoop() {
 				json.Unmarshal([]byte(event.Data), &connectionEstablishedData)
 				self.connection.socketID = connectionEstablishedData["socket_id"]
 				self.Connected = true
-				for _, ch := range self.Channels {
+				for _, ch := range self.channels() {
 					if !ch.Subscribed {
 						self.subscribe(ch)
 					}
 				}
 
 			case "pusher_internal:subscription_succeeded":
-				for _, ch := range self.Channels {
+				for _, ch := range self.channels() {
 					if ch.Name == event.Channel {
 						ch.Subscribed = true
 						ch.connection = self.connection
@@ -200,7 +202,7 @@ func (self *Client) runLoop() {
 			if Debug {
 				log.Print("Connection closed, will reconnect in 1s")
 			}
-			for _, ch := range self.Channels {
+			for _, ch := range self.channels() {
 				ch.Subscribed = false
 			}
 			self.connection = nil
@@ -272,4 +274,16 @@ func (self *Client) unsubscribe(channel *Channel) {
 	}, nil)
 	self.connection.send(message)
 	channel.Subscribed = false
+}
+
+func (c *Client) channels() []*Channel {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.Channels
+}
+
+func (c *Client) addChannel(cn *Channel)  {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.Channels = append(c.Channels, cn)
 }

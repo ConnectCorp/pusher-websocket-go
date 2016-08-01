@@ -39,7 +39,7 @@ type Client struct {
 	Channels     []*Channel
 	UserData     Member
 	Debug        bool
-	mutex        *sync.Mutex
+	mutex        sync.Mutex
 }
 
 type ClientConfig struct {
